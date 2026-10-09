@@ -54,13 +54,13 @@ app.get('/api/search', async (req, res) => {
 });
 
 // ========================================================
-// 2. ENDPOINT STREAM AUDIO (VERSI ENGINE INVIDIOUS - ANTI OVERLOAD)
+// 2. ENDPOINT STREAM AUDIO (PERBAIKAN: BEBAS SALAH KETIK)
 // ========================================================
 app.get('/api/stream', async (req, res) => {
     const videoId = req.query.id;
     if (!videoId) return res.status(400).json({ error: 'Parameter ID wajib diisi' });
 
-    // Daftar server Invidious publik cadangan jika server utama sibuk
+    // Daftar server Invidious publik cadangan yang sangat stabil
     const serverInvidious = [
         'https://nerdvpn.de',
         'https://yewtu.be',
@@ -70,7 +70,7 @@ app.get('/api/stream', async (req, res) => {
 
     for (const baseInstance of serverInvidious) {
         try {
-            Log.d(`Mencoba mengekstrak audio lewat instance: ${baseInstance}`);
+            console.log(`Mencoba mengekstrak audio lewat instance: ${baseInstance}`);
             const urlTarget = `${baseInstance}/api/v1/videos/${videoId}`;
             
             const response = await fetch(urlTarget, { timeout: 6000 });
@@ -78,13 +78,11 @@ app.get('/api/stream', async (req, res) => {
 
             const data = await response.json();
             
-            // Cari data format audio murni (.m4a atau .webm) di dalam array adaptiveFormats
             if (data && data.adaptiveFormats) {
-                const formatAudio = data.adaptiveFormats
-                    .filter(f => f.type && f.type.startsWith('audio/'))
-                    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0]; // Ambil bitrate tertinggi
+                const formatAudio = data.adaptiveFormats.find(f => f.type && f.type.startsWith('audio/'));
 
                 if (formatAudio && formatAudio.url) {
+                    console.log(`SUKSES mendapatkan link musik dari: ${baseInstance}`);
                     return res.json({
                         urlAudioMurni: formatAudio.url,
                         kualitas: "High Quality Audio Stream"
@@ -96,7 +94,6 @@ app.get('/api/stream', async (req, res) => {
         }
     }
 
-    // Jika semua server cadangan di atas gagal merespons
     res.status(404).json({ error: 'Semua jalur pipa audio cadangan sedang sibuk. Coba lagi.' });
 });
 
