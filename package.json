@@ -1,0 +1,11 @@
+{
+  "name": "music-os-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.19.2",
+    "ytmusicapi": "^5.0.0",
+    "play-dl": "^1.9.7"
+  }
+}
