@@ -6,6 +6,6 @@
   "dependencies": {
     "express": "^4.19.2",
     "ytmusic-api": "^5.3.1",
-    "play-dl": "^1.9.7"
+    "@distube/ytdl-core": "^4.15.9"
   }
 }
