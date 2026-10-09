@@ -1,13 +1,15 @@
 import express from 'express';
 import YTMusic from 'ytmusic-api';
-import fetch from 'node-fetch'; // Library untuk menembak API luar
+import fetch from 'node-fetch';
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
+// ========================================================
 // 1. ENDPOINT UNTUK MENCARI LAGU RESMI + COVER ART HD
+// ========================================================
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
     if (!query) return res.status(400).json({ error: 'Parameter pencarian "q" wajib diisi' });
@@ -51,13 +53,15 @@ app.get('/api/search', async (req, res) => {
     }
 });
 
-// 2. ENDPOINT STREAM AUDIO (VERSI JALUR CADANGAN - ANTI BLOKIR IP)
+// ========================================================
+// 2. ENDPOINT STREAM AUDIO (DIKUNCI KE FORMAT MP3 STANDARD)
+// ========================================================
 app.get('/api/stream', async (req, res) => {
     const videoId = req.query.id;
     if (!videoId) return res.status(400).json({ error: 'Parameter ID wajib diisi' });
 
     try {
-        // Menggunakan API publik Cobalt yang kebal dari blokir IP Vercel biasa
+        // Menggunakan API Cobalt dengan parameter ketat agar mengembalikan format MP3 resmi
         const response = await fetch('https://cobalt.tools', {
             method: 'POST',
             headers: {
@@ -66,26 +70,49 @@ app.get('/api/stream', async (req, res) => {
             },
             body: JSON.stringify({
                 url: `https://youtube.com{videoId}`,
-                downloadMode: 'audio', // Hanya mengambil suara murni
-                audioFormat: 'mp3',
-                audioBitrate: '128'
+                downloadMode: 'audio',     // Mengunci hanya suara murni
+                audioFormat: 'mp3',        // WAJIB MP3 agar ExoPlayer Android tidak mogok
+                audioBitrate: '320',       // Kualitas tertinggi (Super Jernih)
+                vCodec: 'h264',            // Standar kompatibilitas
+                filenamePattern: 'basic'
             })
         });
 
         const data = await response.json();
 
-        // Cek apakah link audio murni berhasil didapatkan dari server Cobalt
         if (data && data.url) {
             res.json({
                 urlAudioMurni: data.url,
-                kualitas: "128kbps Audio"
+                kualitas: "320kbps MP3 Audio"
             });
         } else {
             res.status(404).json({ error: 'Audio stream tidak ditemukan via API cadangan' });
         }
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: 'Gagal mengekstrak audio lewat jalur alternatif' });
+        res.status(500).json({ error: 'Gagal mengekstrak audio' });
+    }
+});
+
+// ========================================================
+// 3. ENDPOINT UNTUK MENGAMBIL LIRIK LAGU RESMI
+// ========================================================
+app.get('/api/lyrics', async (req, res) => {
+    const videoId = req.query.id;
+    if (!videoId) return res.status(400).json({ error: 'Parameter ID lagu "id" wajib diisi' });
+
+    try {
+        const ytmusic = new YTMusic();
+        await ytmusic.initialize();
+        const detailLagu = await ytmusic.getSong(videoId);
+        
+        if (!detailLagu || !detailLagu.lyrics) {
+            return res.status(404).json({ error: 'Lirik tidak tersedia untuk lagu ini' });
+        }
+        const teksLirik = await ytmusic.getLyrics(detailLagu.lyrics);
+        res.json({ id: videoId, lirik: teksLirik || 'Lirik kosong' });
+    } catch (error) {
+        res.status(500).json({ error: 'Gagal mengambil lirik' });
     }
 });
 
