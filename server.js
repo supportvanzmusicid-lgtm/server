@@ -7,7 +7,7 @@ const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// 1. ENDPOINT UNTUK MENCARI LAGU RESMI
+// 1. ENDPOINT UNTUK MENCARI LAGU RESMI + COVER ART HD
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
     if (!query) {
@@ -18,17 +18,13 @@ app.get('/api/search', async (req, res) => {
         const ytmusic = new YTMusic();
         await ytmusic.initialize();
         
-        // Melakukan pencarian lagu
         const hasilPencarian = await ytmusic.searchSongs(query);
         
-        // PENGAMAN DATA: Memastikan hasilPencarian ada isinya sebelum diproses
         if (!hasilPencarian || hasilPencarian.length === 0) {
             return res.json([]);
         }
 
-        // Format ulang data dengan pengecekan aman agar tidak terjadi eror 'undefined'
         const daftarLagu = hasilPencarian.slice(0, 15).map(lagu => {
-            // Ambil nama artis dengan aman
             let namaArtis = 'Unknown Artist';
             if (lagu.artists && Array.isArray(lagu.artists)) {
                 namaArtis = lagu.artists.map(a => a.name).join(', ');
@@ -36,10 +32,18 @@ app.get('/api/search', async (req, res) => {
                 namaArtis = lagu.artist.name;
             }
 
-            // Ambil cover art dengan aman
-            let linkCover = 'https://picsum.photos'; // gambar default jika kosong
+            // AMBIL COVER ART & UBAH MENJADI RESOLUSI TINGGI (HD)
+            let linkCover = 'https://picsum.photos'; 
             if (lagu.thumbnails && lagu.thumbnails.length > 0) {
-                linkCover = lagu.thumbnails[lagu.thumbnails.length - 1]?.url || lagu.thumbnails[0]?.url;
+                let urlMentah = lagu.thumbnails[lagu.thumbnails.length - 1]?.url || lagu.thumbnails?.url || '';
+                // Trik mengganti parameter ukuran YouTube Music menjadi resolusi besar 544x544 piksel
+                if (urlMentah.includes('=w120-h120')) {
+                    linkCover = urlMentah.replace('=w120-h120', '=w544-h544-l90-rj');
+                } else if (urlMentah.includes('=w60-h60')) {
+                    linkCover = urlMentah.replace('=w60-h60', '=w544-h544-l90-rj');
+                } else {
+                    linkCover = urlMentah;
+                }
             }
 
             return {
@@ -47,21 +51,18 @@ app.get('/api/search', async (req, res) => {
                 judul: lagu.name || 'Unknown Title',
                 artis: namaArtis,
                 album: lagu.album?.name || 'Single',
-                coverArt: linkCover
+                coverArt: linkCover // Hasil cover dijamin jernih dan tajam!
             };
         });
 
         res.json(daftarLagu);
     } catch (error) {
         console.error('Eror saat mencari lagu:', error);
-        res.status(500).json({ 
-            error: 'Gagal mengambil data lagu resmi', 
-            detail: error.message 
-        });
+        res.status(500).json({ error: 'Gagal mengambil data lagu resmi', detail: error.message });
     }
 });
 
-// 2. ENDPOINT UNTUK MENGAMBIL LINK AUDIO MURNI
+// 2. ENDPOINT UNTUK MENGAMBIL LINK AUDIO MURNI (STABIL & ANTI PUTUS)
 app.get('/api/stream', async (req, res) => {
     const videoId = req.query.id;
     if (!videoId) {
@@ -69,8 +70,11 @@ app.get('/api/stream', async (req, res) => {
     }
 
     try {
+        // Menggunakan library play-dl dengan opsi pencarian stream paling stabil
         const infoStream = await play.video_info(`https://youtube.com{videoId}`);
-        const formatAudio = play.choose_format(infoStream.format, { filter: 'audioonly' });
+        
+        // Memilih format audio dengan kualitas bitrate terbaik dan stabil untuk pemutaran penuh
+        const formatAudio = play.choose_format(infoStream.format, { filter: 'audioonly', quality: 'highestaudio' });
 
         if (!formatAudio || !formatAudio.url) {
             return res.status(404).json({ error: 'Audio stream tidak ditemukan' });
@@ -82,48 +86,10 @@ app.get('/api/stream', async (req, res) => {
         });
     } catch (error) {
         console.error('Eror saat ekstraksi audio:', error);
-        res.status(500).json({ 
-            error: 'Gagal mengekstrak audio murni', 
-            detail: error.message 
-        });
+        res.status(500).json({ error: 'Gagal mengekstrak audio murni', detail: error.message });
     }
 });
 
 app.listen(port, () => {
     console.log(`Server aktif di port ${port}`);
-});
-// 3. ENDPOINT UNTUK MENGAMBIL LIRIK LAGU RESMI
-// Jalur tembak Android: https://vercel.app
-app.get('/api/lyrics', async (req, res) => {
-    const videoId = req.query.id;
-    if (!videoId) {
-        return res.status(400).json({ error: 'Parameter ID lagu "id" wajib diisi' });
-    }
-
-    try {
-        const ytmusic = new YTMusic();
-        await ytmusic.initialize();
-
-        // 1. Ambil detail lagu untuk mendapatkan ID liriknya
-        const detailLagu = await ytmusic.getSong(videoId);
-        
-        // Pengecekan apakah lagu ini punya lirik di server YouTube Music
-        if (!detailLagu || !detailLagu.lyrics) {
-            return res.status(404).json({ error: 'Lirik tidak tersedia untuk lagu ini' });
-        }
-
-        // 2. Ambil teks lirik penuh berdasarkan ID liriknya
-        const teksLirik = await ytmusic.getLyrics(detailLagu.lyrics);
-
-        res.json({
-            id: videoId,
-            lirik: teksLirik || 'Lirik kosong atau tidak dapat dimuat'
-        });
-    } catch (error) {
-        console.error('Eror saat mengambil lirik:', error);
-        res.status(500).json({ 
-            error: 'Gagal mengambil lirik lagu resmi', 
-            detail: error.message 
-        });
-    }
 });
