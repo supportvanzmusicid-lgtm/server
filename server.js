@@ -92,3 +92,38 @@ app.get('/api/stream', async (req, res) => {
 app.listen(port, () => {
     console.log(`Server aktif di port ${port}`);
 });
+// 3. ENDPOINT UNTUK MENGAMBIL LIRIK LAGU RESMI
+// Jalur tembak Android: https://vercel.app
+app.get('/api/lyrics', async (req, res) => {
+    const videoId = req.query.id;
+    if (!videoId) {
+        return res.status(400).json({ error: 'Parameter ID lagu "id" wajib diisi' });
+    }
+
+    try {
+        const ytmusic = new YTMusic();
+        await ytmusic.initialize();
+
+        // 1. Ambil detail lagu untuk mendapatkan ID liriknya
+        const detailLagu = await ytmusic.getSong(videoId);
+        
+        // Pengecekan apakah lagu ini punya lirik di server YouTube Music
+        if (!detailLagu || !detailLagu.lyrics) {
+            return res.status(404).json({ error: 'Lirik tidak tersedia untuk lagu ini' });
+        }
+
+        // 2. Ambil teks lirik penuh berdasarkan ID liriknya
+        const teksLirik = await ytmusic.getLyrics(detailLagu.lyrics);
+
+        res.json({
+            id: videoId,
+            lirik: teksLirik || 'Lirik kosong atau tidak dapat dimuat'
+        });
+    } catch (error) {
+        console.error('Eror saat mengambil lirik:', error);
+        res.status(500).json({ 
+            error: 'Gagal mengambil lirik lagu resmi', 
+            detail: error.message 
+        });
+    }
+});
