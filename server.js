@@ -1,5 +1,6 @@
 import express from 'express';
-import YTMusic from 'ytmusicapi';
+import YTMusic from 'ytmusic-api';
+
 import play from 'play-dl';
 
 const app = express();
