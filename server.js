@@ -1,6 +1,6 @@
 import express from 'express';
 import YTMusic from 'ytmusic-api';
-import ytdl from '@distube/ytdl-core';
+import fetch from 'node-fetch'; // Library untuk menembak API luar
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -51,30 +51,41 @@ app.get('/api/search', async (req, res) => {
     }
 });
 
-// 2. ENDPOINT STREAM AUDIO (VERSI SUPER CEPAT & ANTI-TIMEOUT VERCEL)
+// 2. ENDPOINT STREAM AUDIO (VERSI JALUR CADANGAN - ANTI BLOKIR IP)
 app.get('/api/stream', async (req, res) => {
     const videoId = req.query.id;
     if (!videoId) return res.status(400).json({ error: 'Parameter ID wajib diisi' });
 
     try {
-        // Menggunakan ytdl-core untuk mendapatkan info streaming secara instan dalam milidetik
-        const info = await ytdl.getInfo(`https://youtube.com{videoId}`);
-        
-        // Pilih format audio murni terbaik (audioonly)
-        const formatAudio = ytdl.chooseFormat(info.formats, { filter: 'audioonly', quality: 'highestaudio' });
-
-        if (!formatAudio || !formatAudio.url) {
-            return res.status(404).json({ error: 'Audio stream tidak ditemukan' });
-        }
-
-        // Kirim format JSON resmi yang ditunggu oleh Android kamu
-        res.json({
-            urlAudioMurni: formatAudio.url,
-            kualitas: "High Quality Audio"
+        // Menggunakan API publik Cobalt yang kebal dari blokir IP Vercel biasa
+        const response = await fetch('https://cobalt.tools', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                url: `https://youtube.com{videoId}`,
+                downloadMode: 'audio', // Hanya mengambil suara murni
+                audioFormat: 'mp3',
+                audioBitrate: '128'
+            })
         });
+
+        const data = await response.json();
+
+        // Cek apakah link audio murni berhasil didapatkan dari server Cobalt
+        if (data && data.url) {
+            res.json({
+                urlAudioMurni: data.url,
+                kualitas: "128kbps Audio"
+            });
+        } else {
+            res.status(404).json({ error: 'Audio stream tidak ditemukan via API cadangan' });
+        }
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: 'Gagal mengekstrak audio' });
+        res.status(500).json({ error: 'Gagal mengekstrak audio lewat jalur alternatif' });
     }
 });
 
