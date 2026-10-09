@@ -15,26 +15,49 @@ app.get('/api/search', async (req, res) => {
     }
 
     try {
-        // Inisialisasi baru setiap kali request agar koneksinya selalu segar
         const ytmusic = new YTMusic();
-        await ytmusic.initialize(); // WAJIB di-initialize dulu agar tidak eror di Vercel
+        await ytmusic.initialize();
         
-        // Melakukan pencarian lagu murni
+        // Melakukan pencarian lagu
         const hasilPencarian = await ytmusic.searchSongs(query);
         
-        // Ambil data penting saja untuk dikirim ke Android kamu
-        const daftarLagu = hasilPencarian.slice(0, 15).map(lagu => ({
-            id: lagu.videoId,
-            judul: lagu.name,
-            artis: lagu.artists.map(a => a.name).join(', '),
-            album: lagu.album?.name || 'Single',
-            coverArt: lagu.thumbnails[lagu.thumbnails.length - 1]?.url // Cover kualitas tertinggi
-        }));
+        // PENGAMAN DATA: Memastikan hasilPencarian ada isinya sebelum diproses
+        if (!hasilPencarian || hasilPencarian.length === 0) {
+            return res.json([]);
+        }
+
+        // Format ulang data dengan pengecekan aman agar tidak terjadi eror 'undefined'
+        const daftarLagu = hasilPencarian.slice(0, 15).map(lagu => {
+            // Ambil nama artis dengan aman
+            let namaArtis = 'Unknown Artist';
+            if (lagu.artists && Array.isArray(lagu.artists)) {
+                namaArtis = lagu.artists.map(a => a.name).join(', ');
+            } else if (lagu.artist && lagu.artist.name) {
+                namaArtis = lagu.artist.name;
+            }
+
+            // Ambil cover art dengan aman
+            let linkCover = 'https://picsum.photos'; // gambar default jika kosong
+            if (lagu.thumbnails && lagu.thumbnails.length > 0) {
+                linkCover = lagu.thumbnails[lagu.thumbnails.length - 1]?.url || lagu.thumbnails[0]?.url;
+            }
+
+            return {
+                id: lagu.videoId || '',
+                judul: lagu.name || 'Unknown Title',
+                artis: namaArtis,
+                album: lagu.album?.name || 'Single',
+                coverArt: linkCover
+            };
+        });
 
         res.json(daftarLagu);
     } catch (error) {
         console.error('Eror saat mencari lagu:', error);
-        res.status(500).json({ error: 'Gagal mengambil data lagu resmi', detail: error.message });
+        res.status(500).json({ 
+            error: 'Gagal mengambil data lagu resmi', 
+            detail: error.message 
+        });
     }
 });
 
@@ -59,7 +82,10 @@ app.get('/api/stream', async (req, res) => {
         });
     } catch (error) {
         console.error('Eror saat ekstraksi audio:', error);
-        res.status(500).json({ error: 'Gagal mengekstrak audio murni', detail: error.message });
+        res.status(500).json({ 
+            error: 'Gagal mengekstrak audio murni', 
+            detail: error.message 
+        });
     }
 });
 
