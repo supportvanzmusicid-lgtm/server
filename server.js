@@ -54,66 +54,50 @@ app.get('/api/search', async (req, res) => {
 });
 
 // ========================================================
-// 2. ENDPOINT STREAM AUDIO (DIKUNCI KE FORMAT MP3 STANDARD)
+// 2. ENDPOINT STREAM AUDIO (VERSI ENGINE INVIDIOUS - ANTI OVERLOAD)
 // ========================================================
 app.get('/api/stream', async (req, res) => {
     const videoId = req.query.id;
     if (!videoId) return res.status(400).json({ error: 'Parameter ID wajib diisi' });
 
-    try {
-        // Menggunakan API Cobalt dengan parameter ketat agar mengembalikan format MP3 resmi
-        const response = await fetch('https://cobalt.tools', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify({
-                url: `https://youtube.com{videoId}`,
-                downloadMode: 'audio',     // Mengunci hanya suara murni
-                audioFormat: 'mp3',        // WAJIB MP3 agar ExoPlayer Android tidak mogok
-                audioBitrate: '320',       // Kualitas tertinggi (Super Jernih)
-                vCodec: 'h264',            // Standar kompatibilitas
-                filenamePattern: 'basic'
-            })
-        });
+    // Daftar server Invidious publik cadangan jika server utama sibuk
+    const serverInvidious = [
+        'https://nerdvpn.de',
+        'https://yewtu.be',
+        'https://flokinet.to',
+        'https://tux.digital'
+    ];
 
-        const data = await response.json();
+    for (const baseInstance of serverInvidious) {
+        try {
+            Log.d(`Mencoba mengekstrak audio lewat instance: ${baseInstance}`);
+            const urlTarget = `${baseInstance}/api/v1/videos/${videoId}`;
+            
+            const response = await fetch(urlTarget, { timeout: 6000 });
+            if (!response.ok) continue;
 
-        if (data && data.url) {
-            res.json({
-                urlAudioMurni: data.url,
-                kualitas: "320kbps MP3 Audio"
-            });
-        } else {
-            res.status(404).json({ error: 'Audio stream tidak ditemukan via API cadangan' });
+            const data = await response.json();
+            
+            // Cari data format audio murni (.m4a atau .webm) di dalam array adaptiveFormats
+            if (data && data.adaptiveFormats) {
+                const formatAudio = data.adaptiveFormats
+                    .filter(f => f.type && f.type.startsWith('audio/'))
+                    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0]; // Ambil bitrate tertinggi
+
+                if (formatAudio && formatAudio.url) {
+                    return res.json({
+                        urlAudioMurni: formatAudio.url,
+                        kualitas: "High Quality Audio Stream"
+                    });
+                }
+            }
+        } catch (err) {
+            console.error(`Gagal di instance ${baseInstance}:`, err.message);
         }
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Gagal mengekstrak audio' });
     }
-});
 
-// ========================================================
-// 3. ENDPOINT UNTUK MENGAMBIL LIRIK LAGU RESMI
-// ========================================================
-app.get('/api/lyrics', async (req, res) => {
-    const videoId = req.query.id;
-    if (!videoId) return res.status(400).json({ error: 'Parameter ID lagu "id" wajib diisi' });
-
-    try {
-        const ytmusic = new YTMusic();
-        await ytmusic.initialize();
-        const detailLagu = await ytmusic.getSong(videoId);
-        
-        if (!detailLagu || !detailLagu.lyrics) {
-            return res.status(404).json({ error: 'Lirik tidak tersedia untuk lagu ini' });
-        }
-        const teksLirik = await ytmusic.getLyrics(detailLagu.lyrics);
-        res.json({ id: videoId, lirik: teksLirik || 'Lirik kosong' });
-    } catch (error) {
-        res.status(500).json({ error: 'Gagal mengambil lirik' });
-    }
+    // Jika semua server cadangan di atas gagal merespons
+    res.status(404).json({ error: 'Semua jalur pipa audio cadangan sedang sibuk. Coba lagi.' });
 });
 
 app.listen(port, () => {
