@@ -5,7 +5,7 @@
   "main": "server.js",
   "dependencies": {
     "express": "^4.19.2",
-    "ytmusicapi": "^4.3.0",
+    "ytmusic-api": "^5.3.1",
     "play-dl": "^1.9.7"
   }
 }
