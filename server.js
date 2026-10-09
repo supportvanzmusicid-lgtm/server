@@ -8,7 +8,7 @@ const port = process.env.PORT || 3000;
 app.use(express.json());
 
 // ========================================================
-// 1. ENDPOINT UNTUK MENCARI LAGU RESMI + COVER ART HD
+// 1. ENDPOINT UNTUK MENCARI LAGU (PERBAIKAN NAMA ARTIS NYATA)
 // ========================================================
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
@@ -22,9 +22,14 @@ app.get('/api/search', async (req, res) => {
         if (!hasilPencarian || hasilPencarian.length === 0) return res.json([]);
 
         const daftarLagu = hasilPencarian.slice(0, 15).map(lagu => {
+            // LOGIKA SAKTI: Membaca nama artis secara akurat dari semua versi ytmusic-api
             let namaArtis = 'Unknown Artist';
-            if (lagu.artists && Array.isArray(lagu.artists)) {
-                namaArtis = lagu.artists.map(a => a.name).join(', ');
+            if (lagu.artist && lagu.artist.name) {
+                namaArtis = lagu.artist.name;
+            } else if (lagu.artists && Array.isArray(lagu.artists)) {
+                namaArtis = lagu.artists.map(a => a.name || a || 'Unknown').join(', ');
+            } else if (typeof lagu.artist === 'string') {
+                namaArtis = lagu.artist;
             }
 
             let linkCover = 'https://picsum.photos'; 
@@ -54,13 +59,12 @@ app.get('/api/search', async (req, res) => {
 });
 
 // ========================================================
-// 2. ENDPOINT STREAM AUDIO (PERBAIKAN: BEBAS SALAH KETIK)
+// 2. ENDPOINT STREAM AUDIO (ENGINE MULTI-INSTANCE INVIDIOUS)
 // ========================================================
 app.get('/api/stream', async (req, res) => {
     const videoId = req.query.id;
     if (!videoId) return res.status(400).json({ error: 'Parameter ID wajib diisi' });
 
-    // Daftar server Invidious publik cadangan yang sangat stabil
     const serverInvidious = [
         'https://nerdvpn.de',
         'https://yewtu.be',
@@ -95,6 +99,28 @@ app.get('/api/stream', async (req, res) => {
     }
 
     res.status(404).json({ error: 'Semua jalur pipa audio cadangan sedang sibuk. Coba lagi.' });
+});
+
+// ========================================================
+// 3. ENDPOINT UNTUK MENGAMBIL LIRIK LAGU RESMI
+// ========================================================
+app.get('/api/lyrics', async (req, res) => {
+    const videoId = req.query.id;
+    if (!videoId) return res.status(400).json({ error: 'Parameter ID lagu "id" wajib diisi' });
+
+    try {
+        const ytmusic = new YTMusic();
+        await ytmusic.initialize();
+        const detailLagu = await ytmusic.getSong(videoId);
+        
+        if (!detailLagu || !detailLagu.lyrics) {
+            return res.status(404).json({ error: 'Lirik tidak tersedia untuk lagu ini' });
+        }
+        const teksLirik = await ytmusic.getLyrics(detailLagu.lyrics);
+        res.json({ id: videoId, lirik: teksLirik || 'Lirik kosong' });
+    } catch (error) {
+        res.status(500).json({ error: 'Gagal mengambil lirik' });
+    }
 });
 
 app.listen(port, () => {
