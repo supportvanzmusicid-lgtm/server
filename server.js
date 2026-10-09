@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import YTMusic from 'ytmusic-api';
 import fetch from 'node-fetch';
 
@@ -8,7 +9,16 @@ const port = process.env.PORT || 3000;
 app.use(express.json());
 
 // ========================================================
-// 1. ENDPOINT UNTUK MENCARI LAGU (PERBAIKAN NAMA ARTIS NYATA)
+// PERBAIKAN UTAMA: MEMBUKA GERBANG KEAMANAN CORS
+// Mengizinkan website frontend Vercel (.tsx) kamu untuk mengambil data
+// ========================================================
+app.use(cors({
+    origin: '*', 
+    methods: ['GET', 'POST']
+}));
+
+// ========================================================
+// 1. ENDPOINT UNTUK MENCARI LAGU (PERBAIKAN NAMA ARTIS)
 // ========================================================
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
@@ -22,7 +32,7 @@ app.get('/api/search', async (req, res) => {
         if (!hasilPencarian || hasilPencarian.length === 0) return res.json([]);
 
         const daftarLagu = hasilPencarian.slice(0, 15).map(lagu => {
-            // LOGIKA SAKTI: Membaca nama artis secara akurat dari semua versi ytmusic-api
+            // Membaca nama artis secara akurat dari semua versi ytmusic-api
             let namaArtis = 'Unknown Artist';
             if (lagu.artist && lagu.artist.name) {
                 namaArtis = lagu.artist.name;
