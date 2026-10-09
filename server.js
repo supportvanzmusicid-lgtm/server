@@ -1,42 +1,33 @@
 import express from 'express';
 import YTMusic from 'ytmusic-api';
-import play from 'play-dl';
+import ytdl from '@distube/ytdl-core';
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// ========================================================
 // 1. ENDPOINT UNTUK MENCARI LAGU RESMI + COVER ART HD
-// ========================================================
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
-    if (!query) {
-        return res.status(400).json({ error: 'Parameter pencarian "q" wajib diisi' });
-    }
+    if (!query) return res.status(400).json({ error: 'Parameter pencarian "q" wajib diisi' });
 
     try {
         const ytmusic = new YTMusic();
         await ytmusic.initialize();
-        
         const hasilPencarian = await ytmusic.searchSongs(query);
         
-        if (!hasilPencarian || hasilPencarian.length === 0) {
-            return res.json([]);
-        }
+        if (!hasilPencarian || hasilPencarian.length === 0) return res.json([]);
 
         const daftarLagu = hasilPencarian.slice(0, 15).map(lagu => {
             let namaArtis = 'Unknown Artist';
             if (lagu.artists && Array.isArray(lagu.artists)) {
                 namaArtis = lagu.artists.map(a => a.name).join(', ');
-            } else if (lagu.artist && lagu.artist.name) {
-                namaArtis = lagu.artist.name;
             }
 
             let linkCover = 'https://picsum.photos'; 
             if (lagu.thumbnails && lagu.thumbnails.length > 0) {
-                let urlMentah = lagu.thumbnails[lagu.thumbnails.length - 1]?.url || lagu.thumbnails?.url || '';
+                let urlMentah = lagu.thumbnails[lagu.thumbnails.length - 1]?.url || '';
                 if (urlMentah.includes('=w120-h120')) {
                     linkCover = urlMentah.replace('=w120-h120', '=w544-h544-l90-rj');
                 } else if (urlMentah.includes('=w60-h60')) {
@@ -54,62 +45,36 @@ app.get('/api/search', async (req, res) => {
                 coverArt: linkCover
             };
         });
-
         res.json(daftarLagu);
     } catch (error) {
-        console.error('Eror saat mencari lagu:', error);
-        res.status(500).json({ error: 'Gagal mengambil data lagu resmi', detail: error.message });
+        res.status(500).json({ error: 'Gagal mengambil data' });
     }
 });
 
-// ========================================================
-// 2. ENDPOINT STREAM AUDIO (PERBAIKAN: KIRIM TEKS LINK LANGSUNG)
-// ========================================================
+// 2. ENDPOINT STREAM AUDIO (VERSI SUPER CEPAT & ANTI-TIMEOUT VERCEL)
 app.get('/api/stream', async (req, res) => {
     const videoId = req.query.id;
-    if (!videoId) {
-        return res.status(400).send('Parameter ID lagu "id" wajib diisi');
-    }
+    if (!videoId) return res.status(400).json({ error: 'Parameter ID wajib diisi' });
 
     try {
-        const infoStream = await play.stream(`https://youtube.com{videoId}`, {
-            quality: 1 
-        });
-
-        if (!infoStream || !infoStream.url) {
-            return res.status(404).send('Audio stream tidak ditemukan');
-        }
-
-        // KUNCI PERBAIKAN: Mengirim teks URL bersih langsung (res.send) agar dibaca mulus oleh Android
-        res.setHeader('Content-Type', 'text/plain');
-        res.send(infoStream.url);
-    } catch (error) {
-        console.error('Eror saat ekstraksi audio:', error);
-        res.status(500).send('Gagal mengekstrak audio murni');
-    }
-});
-
-// ========================================================
-// 3. ENDPOINT UNTUK MENGAMBIL LIRIK LAGU RESMI
-// ========================================================
-app.get('/api/lyrics', async (req, res) => {
-    const videoId = req.query.id;
-    if (!videoId) {
-        return res.status(400).json({ error: 'Parameter ID lagu "id" wajib diisi' });
-    }
-
-    try {
-        const ytmusic = new YTMusic();
-        await ytmusic.initialize();
-        const detailLagu = await ytmusic.getSong(videoId);
+        // Menggunakan ytdl-core untuk mendapatkan info streaming secara instan dalam milidetik
+        const info = await ytdl.getInfo(`https://youtube.com{videoId}`);
         
-        if (!detailLagu || !detailLagu.lyrics) {
-            return res.status(404).json({ error: 'Lirik tidak tersedia untuk lagu ini' });
+        // Pilih format audio murni terbaik (audioonly)
+        const formatAudio = ytdl.chooseFormat(info.formats, { filter: 'audioonly', quality: 'highestaudio' });
+
+        if (!formatAudio || !formatAudio.url) {
+            return res.status(404).json({ error: 'Audio stream tidak ditemukan' });
         }
-        const teksLirik = await ytmusic.getLyrics(detailLagu.lyrics);
-        res.json({ id: videoId, lirik: teksLirik || 'Lirik kosong' });
+
+        // Kirim format JSON resmi yang ditunggu oleh Android kamu
+        res.json({
+            urlAudioMurni: formatAudio.url,
+            kualitas: "High Quality Audio"
+        });
     } catch (error) {
-        res.status(500).json({ error: 'Gagal mengambil lirik' });
+        console.error(error);
+        res.status(500).json({ error: 'Gagal mengekstrak audio' });
     }
 });
 
