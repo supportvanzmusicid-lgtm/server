@@ -5,7 +5,6 @@ import fetch from 'node-fetch';
 
 const app = express();
 
-// Middleware CORS agar API bisa diakses dari frontend web manapun
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST'],
@@ -28,12 +27,23 @@ app.get('/api/search', async (req, res) => {
         
         if (!hasilPencarian || hasilPencarian.length === 0) return res.json([]);
 
+        // DEBUG: Cetak objek mentah pertama ke console Vercel/Terminal agar kita tahu strukturnya
+        console.log("Struktur mentah lagu dari YTMusic:", JSON.stringify(hasilPencarian[0], null, 2));
+
         const daftarLagu = hasilPencarian.slice(0, 15).map(lagu => {
-            // Logika fleksibel untuk menangkap nama artis agar tidak "Unknown Artist"
+            // Perluasan pengecekan berlapis untuk menangkap artis
             let namaArtis = 'Unknown Artist';
-            if (lagu.artists) {
+
+            if (lagu.artist) {
+                if (typeof lagu.artist === 'string') namaArtis = lagu.artist;
+                else if (lagu.artist.name) namaArtis = lagu.artist.name;
+                else if (lagu.artist.text) namaArtis = lagu.artist.text;
+            } else if (lagu.artists) {
                 if (Array.isArray(lagu.artists)) {
-                    namaArtis = lagu.artists.map(a => typeof a === 'string' ? a : (a.name || a.text)).filter(Boolean).join(', ');
+                    namaArtis = lagu.artists.map(a => {
+                        if (typeof a === 'string') return a;
+                        return a.name || a.text || a.title || '';
+                    }).filter(Boolean).join(', ');
                 } else if (typeof lagu.artists === 'string') {
                     namaArtis = lagu.artists;
                 }
@@ -55,7 +65,7 @@ app.get('/api/search', async (req, res) => {
 
             return {
                 id: lagu.videoId || '',
-                judul: lagu.name || 'Unknown Title',
+                judul: lagu.name || lagu.title || 'Unknown Title',
                 artis: namaArtis,
                 album: lagu.album?.name || 'Single',
                 coverArt: linkCover
@@ -111,7 +121,6 @@ app.get('/api/stream', async (req, res) => {
     return res.status(404).json({ error: 'Semua jalur pipa audio cadangan sedang sibuk. Coba lagi.' });
 });
 
-// Penanganan untuk local testing
 if (process.env.NODE_ENV !== 'production') {
     const port = process.env.PORT || 3000;
     app.listen(port, () => {
@@ -119,5 +128,4 @@ if (process.env.NODE_ENV !== 'production') {
     });
 }
 
-// Export app agar terbaca di Vercel Serverless Function
 export default app;
