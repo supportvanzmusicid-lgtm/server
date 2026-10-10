@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import YTMusic from 'ytmusic-api';
 import fetch from 'node-fetch';
 
@@ -9,16 +8,7 @@ const port = process.env.PORT || 3000;
 app.use(express.json());
 
 // ========================================================
-// PERBAIKAN UTAMA: MEMBUKA GERBANG KEAMANAN CORS
-// Mengizinkan website frontend Vercel (.tsx) kamu untuk mengambil data
-// ========================================================
-app.use(cors({
-    origin: '*', 
-    methods: ['GET', 'POST']
-}));
-
-// ========================================================
-// 1. ENDPOINT UNTUK MENCARI LAGU (PERBAIKAN NAMA ARTIS)
+// 1. ENDPOINT UNTUK MENCARI LAGU
 // ========================================================
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
@@ -32,14 +22,9 @@ app.get('/api/search', async (req, res) => {
         if (!hasilPencarian || hasilPencarian.length === 0) return res.json([]);
 
         const daftarLagu = hasilPencarian.slice(0, 15).map(lagu => {
-            // Membaca nama artis secara akurat dari semua versi ytmusic-api
             let namaArtis = 'Unknown Artist';
-            if (lagu.artist && lagu.artist.name) {
-                namaArtis = lagu.artist.name;
-            } else if (lagu.artists && Array.isArray(lagu.artists)) {
-                namaArtis = lagu.artists.map(a => a.name || a || 'Unknown').join(', ');
-            } else if (typeof lagu.artist === 'string') {
-                namaArtis = lagu.artist;
+            if (lagu.artists && Array.isArray(lagu.artists)) {
+                namaArtis = lagu.artists.map(a => a.name).join(', ');
             }
 
             let linkCover = 'https://picsum.photos'; 
@@ -64,42 +49,54 @@ app.get('/api/search', async (req, res) => {
         });
         res.json(daftarLagu);
     } catch (error) {
-        res.status(500).json({ error: 'Gagal mengambil data' });
+        res.status(500).json({ error: 'Gagal mengambil data pencarian' });
     }
 });
 
 // ========================================================
-// 2. ENDPOINT STREAM AUDIO (ENGINE MULTI-INSTANCE INVIDIOUS)
+// 2. ENDPOINT STREAM AUDIO (ANTI-TIMEOUT VERCEL)
 // ========================================================
 app.get('/api/stream', async (req, res) => {
     const videoId = req.query.id;
     if (!videoId) return res.status(400).json({ error: 'Parameter ID wajib diisi' });
 
+    // Daftar instance Invidious publik yang stabil dengan tautan bebas pembatasan IP
     const serverInvidious = [
-        'https://nerdvpn.de',
         'https://yewtu.be',
+        'https://nerdvpn.de',
         'https://flokinet.to',
         'https://tux.digital'
     ];
 
     for (const baseInstance of serverInvidious) {
         try {
-            console.log(`Mencoba mengekstrak audio lewat instance: ${baseInstance}`);
-            const urlTarget = `${baseInstance}/api/v1/videos/${videoId}`;
+            console.log(`Mencoba mengambil link publik dari: ${baseInstance}`);
+            // Ditambahkan ?local=true agar server invidious menyediakan link stream publik global
+            const urlTarget = `${baseInstance}/api/v1/videos/${videoId}?local=true`;
             
-            const response = await fetch(urlTarget, { timeout: 6000 });
+            const response = await fetch(urlTarget, { timeout: 5000 });
             if (!response.ok) continue;
 
             const data = await response.json();
             
             if (data && data.adaptiveFormats) {
+                // Mencari format audio murni (.mp4a / m4a / webm audio)
                 const formatAudio = data.adaptiveFormats.find(f => f.type && f.type.startsWith('audio/'));
 
                 if (formatAudio && formatAudio.url) {
-                    console.log(`SUKSES mendapatkan link musik dari: ${baseInstance}`);
+                    let finalUrl = formatAudio.url;
+                    
+                    // Validasi jika instance mengembalikan path relatif
+                    if (finalUrl.startsWith('/')) {
+                        finalUrl = `${baseInstance}${finalUrl}`;
+                    }
+
+                    console.log(`SUKSES mengekstrak audio dari ${baseInstance}`);
+                    
+                    // Mengirimkan JSON kembali ke Android agar fungsi Vercel langsung selesai (aman dari timeout)
                     return res.json({
-                        urlAudioMurni: formatAudio.url,
-                        kualitas: "High Quality Audio Stream"
+                        urlAudioMurni: finalUrl,
+                        kualitas: "Global Audio Stream"
                     });
                 }
             }
@@ -108,29 +105,7 @@ app.get('/api/stream', async (req, res) => {
         }
     }
 
-    res.status(404).json({ error: 'Semua jalur pipa audio cadangan sedang sibuk. Coba lagi.' });
-});
-
-// ========================================================
-// 3. ENDPOINT UNTUK MENGAMBIL LIRIK LAGU RESMI
-// ========================================================
-app.get('/api/lyrics', async (req, res) => {
-    const videoId = req.query.id;
-    if (!videoId) return res.status(400).json({ error: 'Parameter ID lagu "id" wajib diisi' });
-
-    try {
-        const ytmusic = new YTMusic();
-        await ytmusic.initialize();
-        const detailLagu = await ytmusic.getSong(videoId);
-        
-        if (!detailLagu || !detailLagu.lyrics) {
-            return res.status(404).json({ error: 'Lirik tidak tersedia untuk lagu ini' });
-        }
-        const teksLirik = await ytmusic.getLyrics(detailLagu.lyrics);
-        res.json({ id: videoId, lirik: teksLirik || 'Lirik kosong' });
-    } catch (error) {
-        res.status(500).json({ error: 'Gagal mengambil lirik' });
-    }
+    res.status(404).json({ error: 'Semua jalur pipa audio cadangan sedang sibuk. Coba lagi nanti.' });
 });
 
 app.listen(port, () => {
