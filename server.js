@@ -1,14 +1,28 @@
 import express from 'express';
 import YTMusic from 'ytmusic-api';
 import fetch from 'node-fetch';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const app = express();
 const port = process.env.PORT || 3000;
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 app.use(express.json());
 
 // ========================================================
-// 1. ENDPOINT UNTUK MENCARI LAGU
+// MENAMPILKAN KEMBALI WEBSITE UTAMA KAMU (FRONT-END)
+// ========================================================
+app.use(express.static(path.join(__dirname, 'public'))); 
+
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ========================================================
+// 1. ENDPOINT MENCARI LAGU (PERBAIKAN: JAUH LEBIH AKURAT)
 // ========================================================
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
@@ -17,7 +31,9 @@ app.get('/api/search', async (req, res) => {
     try {
         const ytmusic = new YTMusic();
         await ytmusic.initialize();
-        const hasilPencarian = await ytmusic.searchSongs(query);
+        
+        // MENGGUNAKAN FILTER "SONG" AGAR HASIL PENCARIAN PAS DAN SESUAI JUDUL YANG DICARI
+        const hasilPencarian = await ytmusic.search(query, "SONG");
         
         if (!hasilPencarian || hasilPencarian.length === 0) return res.json([]);
 
@@ -60,7 +76,6 @@ app.get('/api/stream', async (req, res) => {
     const videoId = req.query.id;
     if (!videoId) return res.status(400).json({ error: 'Parameter ID wajib diisi' });
 
-    // Daftar instance Invidious publik yang stabil dengan tautan bebas pembatasan IP
     const serverInvidious = [
         'https://yewtu.be',
         'https://nerdvpn.de',
@@ -71,7 +86,6 @@ app.get('/api/stream', async (req, res) => {
     for (const baseInstance of serverInvidious) {
         try {
             console.log(`Mencoba mengambil link publik dari: ${baseInstance}`);
-            // Ditambahkan ?local=true agar server invidious menyediakan link stream publik global
             const urlTarget = `${baseInstance}/api/v1/videos/${videoId}?local=true`;
             
             const response = await fetch(urlTarget, { timeout: 5000 });
@@ -80,20 +94,17 @@ app.get('/api/stream', async (req, res) => {
             const data = await response.json();
             
             if (data && data.adaptiveFormats) {
-                // Mencari format audio murni (.mp4a / m4a / webm audio)
                 const formatAudio = data.adaptiveFormats.find(f => f.type && f.type.startsWith('audio/'));
 
                 if (formatAudio && formatAudio.url) {
                     let finalUrl = formatAudio.url;
                     
-                    // Validasi jika instance mengembalikan path relatif
                     if (finalUrl.startsWith('/')) {
                         finalUrl = `${baseInstance}${finalUrl}`;
                     }
 
-                    console.log(`SUKSES mengekstrak audio dari ${baseInstance}`);
+                    console.log(`SUKSES mendapatkan url audio murni`);
                     
-                    // Mengirimkan JSON kembali ke Android agar fungsi Vercel langsung selesai (aman dari timeout)
                     return res.json({
                         urlAudioMurni: finalUrl,
                         kualitas: "Global Audio Stream"
