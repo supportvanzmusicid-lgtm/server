@@ -11,13 +11,11 @@ const port = process.env.PORT || 3000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Mengaktifkan fitur CORS agar aplikasi Android asli kamu bebas masuk tanpa diblokir
+// Wajib aktif agar aplikasi Android aslimu tidak terkena blokir CORS
 app.use(cors());
 app.use(express.json());
 
-// ========================================================
-// MENAMPILKAN KEMBALI WEBSITE UTAMA KAMU (FRONT-END HTML)
-// ========================================================
+// Menampilkan kembali visual website buatanmu jika ditaruh di folder public
 app.use(express.static(path.join(__dirname, 'public'))); 
 
 app.get('/', (req, res) => {
@@ -25,7 +23,7 @@ app.get('/', (req, res) => {
 });
 
 // ========================================================
-// 1. ENDPOINT MENCARI LAGU (ANTI-DJ, ANTI-REMIX & AKURAT)
+// 1. ENDPOINT MENCARI LAGU (SISTEM FILTER: ANTI-DJ & REMIX)
 // ========================================================
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
@@ -35,12 +33,12 @@ app.get('/api/search', async (req, res) => {
         const ytmusic = new YTMusic();
         await ytmusic.initialize();
         
-        // Menggunakan search umum bawaan ytmusic-api agar Video Musik resmi/OST ikut terjaring
+        // Cari secara umum agar Video Musik Resmi & OST Sinetron ikut terjaring
         const hasilPencarian = await ytmusic.search(query);
         
         if (!hasilPencarian || hasilPencarian.length === 0) return res.json([]);
 
-        // Menyaring paksa kata kunci dugem/remix ngasal yang merusak hasil asli
+        // Daftar hitam kata kunci yang otomatis dibuang paksa dari hasil pencarian
         const kataKunciTerlarang = ['dj', 'remix', 'jedag', 'jedug', 'instrumental', 'karaoke', 'cover'];
 
         const hasilValid = hasilPencarian.filter(item => {
@@ -60,7 +58,6 @@ app.get('/api/search', async (req, res) => {
                 namaArtis = lagu.author.name;
             }
 
-            // Pemetaan gambar cover art album agar resolusinya HD (tidak blur di Android)
             let linkCover = 'https://picsum.photos'; 
             if (lagu.thumbnails && lagu.thumbnails.length > 0) {
                 let urlMentah = lagu.thumbnails[lagu.thumbnails.length - 1]?.url || '';
@@ -89,13 +86,12 @@ app.get('/api/search', async (req, res) => {
 });
 
 // ========================================================
-// 2. ENDPOINT STREAM AUDIO (ANTI-TIMEOUT VERCEL + ANTI-403)
+// 2. ENDPOINT STREAM AUDIO (ANTI-TIMEOUT VERCEL)
 // ========================================================
 app.get('/api/stream', async (req, res) => {
     const videoId = req.query.id;
     if (!videoId) return res.status(400).json({ error: 'Parameter ID wajib diisi' });
 
-    // Node-fetch akan menggilir server cermin publik yang link videonya bebas IP dikunci
     const serverInvidious = [
         'https://yewtu.be',
         'https://nerdvpn.de',
@@ -105,7 +101,7 @@ app.get('/api/stream', async (req, res) => {
 
     for (const baseInstance of serverInvidious) {
         try {
-            console.log(`Mencoba bypass lewat instance: ${baseInstance}`);
+            console.log(`Bypass streaming via instance: ${baseInstance}`);
             const urlTarget = `${baseInstance}/api/v1/videos/${videoId}?local=true`;
             
             const response = await fetch(urlTarget, { timeout: 5000 });
@@ -114,7 +110,6 @@ app.get('/api/stream', async (req, res) => {
             const data = await response.json();
             
             if (data && data.adaptiveFormats) {
-                // Mencari alur biner berformat audio murni
                 const formatAudio = data.adaptiveFormats.find(f => f.type && f.type.startsWith('audio/'));
 
                 if (formatAudio && formatAudio.url) {
@@ -124,9 +119,6 @@ app.get('/api/stream', async (req, res) => {
                         finalUrl = `${baseInstance}${finalUrl}`;
                     }
 
-                    console.log(`SUKSES mendapatkan url audio publik`);
-                    
-                    // Mengembalikan JSON instan agar Vercel langsung selesai (bebas eror timeout)
                     return res.json({
                         urlAudioMurni: finalUrl,
                         kualitas: "Global Audio Stream"
