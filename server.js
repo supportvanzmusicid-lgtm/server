@@ -11,11 +11,9 @@ const port = process.env.PORT || 3000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Wajib aktif agar aplikasi Android aslimu tidak terkena blokir CORS
 app.use(cors());
 app.use(express.json());
 
-// Menampilkan kembali visual website buatanmu jika ditaruh di folder public
 app.use(express.static(path.join(__dirname, 'public'))); 
 
 app.get('/', (req, res) => {
@@ -23,23 +21,26 @@ app.get('/', (req, res) => {
 });
 
 // ========================================================
-// 1. ENDPOINT MENCARI LAGU (SISTEM FILTER: ANTI-DJ & REMIX)
+// 1. ENDPOINT MENCARI LAGU (PERBAIKAN TOTAL: ANTI-TERTUKAR DYGTA)
 // ========================================================
 app.get('/api/search', async (req, res) => {
-    const query = req.query.q;
+    let query = req.query.q;
     if (!query) return res.status(400).json({ error: 'Parameter pencarian "q" wajib diisi' });
 
     try {
         const ytmusic = new YTMusic();
         await ytmusic.initialize();
         
-        // Cari secara umum agar Video Musik Resmi & OST Sinetron ikut terjaring
+        // JIKA USER MENCARI JATUH CINTA RADEN RAKHA, OTOMATIS TAMBAHKAN KATA KUNCI PENGIKAT AGAR TIDAK SALAH AMBIL ALBUM DYGTA
+        if (query.toLowerCase().includes('jatuh cinta') && (query.toLowerCase().includes('rakha') || query.toLowerCase().includes('basmalah') || query.toLowerCase().includes('magic'))) {
+            query = query + " ost magic 5 resmi indosiar";
+        }
+
         const hasilPencarian = await ytmusic.search(query);
-        
         if (!hasilPencarian || hasilPencarian.length === 0) return res.json([]);
 
-        // Daftar hitam kata kunci yang otomatis dibuang paksa dari hasil pencarian
-        const kataKunciTerlarang = ['dj', 'remix', 'jedag', 'jedug', 'instrumental', 'karaoke', 'cover'];
+        // Filter ketat: Buang versi DJ Dugem, Remix, dan buang Album Dygta lama jika masih nekat muncul
+        const kataKunciTerlarang = ['dj', 'remix', 'jedag', 'jedug', 'instrumental', 'karaoke', 'cover', 'dygta'];
 
         const hasilValid = hasilPencarian.filter(item => {
             const tipeValid = item.type === 'SONG' || item.type === 'VIDEO';
@@ -50,7 +51,7 @@ app.get('/api/search', async (req, res) => {
         });
 
         const daftarLagu = hasilValid.slice(0, 15).map(lagu => {
-            let namaArtis = 'Raden Rakha & Basmalah'; // Fallback default untuk OST Magic 5
+            let namaArtis = 'Raden Rakha & Basmalah';
             
             if (lagu.artists && Array.isArray(lagu.artists)) {
                 namaArtis = lagu.artists.map(a => a.name).join(', ');
@@ -58,29 +59,22 @@ app.get('/api/search', async (req, res) => {
                 namaArtis = lagu.author.name;
             }
 
+            // Memastikan tautan gambar cover art menggunakan aset asli dari video YouTube resmi tersebut
             let linkCover = 'https://picsum.photos'; 
             if (lagu.thumbnails && lagu.thumbnails.length > 0) {
-                let urlMentah = lagu.thumbnails[lagu.thumbnails.length - 1]?.url || '';
-                if (urlMentah.includes('=w120-h120')) {
-                    linkCover = urlMentah.replace('=w120-h120', '=w544-h544-l90-rj');
-                } else if (urlMentah.includes('=w60-h60')) {
-                    linkCover = urlMentah.replace('=w60-h60', '=w544-h544-l90-rj');
-                } else {
-                    linkCover = urlMentah;
-                }
+                linkCover = lagu.thumbnails[lagu.thumbnails.length - 1]?.url || '';
             }
 
             return {
                 id: lagu.videoId || '',
                 judul: lagu.name || 'Unknown Title',
                 artis: namaArtis,
-                album: lagu.album?.name || 'Original Soundtrack',
+                album: lagu.album?.name || 'Original Soundtrack Magic 5',
                 coverArt: linkCover
             };
         });
         res.json(daftarLagu);
     } catch (error) {
-        console.error('Eror pencarian:', error);
         res.status(500).json({ error: 'Gagal mengambil data pencarian' });
     }
 });
@@ -101,7 +95,6 @@ app.get('/api/stream', async (req, res) => {
 
     for (const baseInstance of serverInvidious) {
         try {
-            console.log(`Bypass streaming via instance: ${baseInstance}`);
             const urlTarget = `${baseInstance}/api/v1/videos/${videoId}?local=true`;
             
             const response = await fetch(urlTarget, { timeout: 5000 });
@@ -114,7 +107,6 @@ app.get('/api/stream', async (req, res) => {
 
                 if (formatAudio && formatAudio.url) {
                     let finalUrl = formatAudio.url;
-                    
                     if (finalUrl.startsWith('/')) {
                         finalUrl = `${baseInstance}${finalUrl}`;
                     }
@@ -130,7 +122,7 @@ app.get('/api/stream', async (req, res) => {
         }
     }
 
-    res.status(404).json({ error: 'Jalur pipa audio sedang sibuk. Silakan coba lagi.' });
+    res.status(404).json({ error: 'Jalur pipa audio sedang sibuk.' });
 });
 
 app.listen(port, () => {
