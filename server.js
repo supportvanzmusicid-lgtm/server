@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import YTMusic from 'ytmusic-api';
 import fetch from 'node-fetch';
 import path from 'path';
@@ -10,6 +11,8 @@ const port = process.env.PORT || 3000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Mengaktifkan fitur CORS agar aplikasi Android asli kamu bebas masuk tanpa diblokir
+app.use(cors());
 app.use(express.json());
 
 // ========================================================
@@ -22,7 +25,7 @@ app.get('/', (req, res) => {
 });
 
 // ========================================================
-// 1. ENDPOINT MENCARI LAGU (PERBAIKAN MUTLAK: ANTI-DJ & ANTI-REMIX)
+// 1. ENDPOINT MENCARI LAGU (ANTI-DJ, ANTI-REMIX & AKURAT)
 // ========================================================
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
@@ -32,30 +35,24 @@ app.get('/api/search', async (req, res) => {
         const ytmusic = new YTMusic();
         await ytmusic.initialize();
         
-        // Cari secara umum agar mencakup Video Musik resmi & OST
+        // Menggunakan search umum bawaan ytmusic-api agar Video Musik resmi/OST ikut terjaring
         const hasilPencarian = await ytmusic.search(query);
         
         if (!hasilPencarian || hasilPencarian.length === 0) return res.json([]);
 
-        // Daftar kata kunci terlarang yang akan langsung dibuang oleh server
+        // Menyaring paksa kata kunci dugem/remix ngasal yang merusak hasil asli
         const kataKunciTerlarang = ['dj', 'remix', 'jedag', 'jedug', 'instrumental', 'karaoke', 'cover'];
 
-        // Proses penyaringan ketat
         const hasilValid = hasilPencarian.filter(item => {
-            // Hanya ambil tipe lagu atau video
             const tipeValid = item.type === 'SONG' || item.type === 'VIDEO';
             if (!tipeValid) return false;
 
             const judulLagu = (item.name || '').toLowerCase();
-            
-            // Buang video jika judulnya mengandung unsur DJ atau Remix dugem
-            const apakahLaguDj = kataKunciTerlarang.some(kata => judulLagu.includes(kata));
-            
-            return !apakahLaguDj; // Hanya lolos jika bukan versi DJ/Remix
+            return !kataKunciTerlarang.some(kata => judulLagu.includes(kata));
         });
 
         const daftarLagu = hasilValid.slice(0, 15).map(lagu => {
-            let namaArtis = 'Raden Rakha & Basmalah'; // Default untuk OST Magic 5
+            let namaArtis = 'Raden Rakha & Basmalah'; // Fallback default untuk OST Magic 5
             
             if (lagu.artists && Array.isArray(lagu.artists)) {
                 namaArtis = lagu.artists.map(a => a.name).join(', ');
@@ -63,6 +60,7 @@ app.get('/api/search', async (req, res) => {
                 namaArtis = lagu.author.name;
             }
 
+            // Pemetaan gambar cover art album agar resolusinya HD (tidak blur di Android)
             let linkCover = 'https://picsum.photos'; 
             if (lagu.thumbnails && lagu.thumbnails.length > 0) {
                 let urlMentah = lagu.thumbnails[lagu.thumbnails.length - 1]?.url || '';
@@ -91,12 +89,13 @@ app.get('/api/search', async (req, res) => {
 });
 
 // ========================================================
-// 2. ENDPOINT STREAM AUDIO (ANTI-TIMEOUT VERCEL)
+// 2. ENDPOINT STREAM AUDIO (ANTI-TIMEOUT VERCEL + ANTI-403)
 // ========================================================
 app.get('/api/stream', async (req, res) => {
     const videoId = req.query.id;
     if (!videoId) return res.status(400).json({ error: 'Parameter ID wajib diisi' });
 
+    // Node-fetch akan menggilir server cermin publik yang link videonya bebas IP dikunci
     const serverInvidious = [
         'https://yewtu.be',
         'https://nerdvpn.de',
@@ -106,7 +105,7 @@ app.get('/api/stream', async (req, res) => {
 
     for (const baseInstance of serverInvidious) {
         try {
-            console.log(`Mencoba mengambil link publik dari: ${baseInstance}`);
+            console.log(`Mencoba bypass lewat instance: ${baseInstance}`);
             const urlTarget = `${baseInstance}/api/v1/videos/${videoId}?local=true`;
             
             const response = await fetch(urlTarget, { timeout: 5000 });
@@ -115,6 +114,7 @@ app.get('/api/stream', async (req, res) => {
             const data = await response.json();
             
             if (data && data.adaptiveFormats) {
+                // Mencari alur biner berformat audio murni
                 const formatAudio = data.adaptiveFormats.find(f => f.type && f.type.startsWith('audio/'));
 
                 if (formatAudio && formatAudio.url) {
@@ -124,8 +124,9 @@ app.get('/api/stream', async (req, res) => {
                         finalUrl = `${baseInstance}${finalUrl}`;
                     }
 
-                    console.log(`SUKSES mendapatkan url audio murni`);
+                    console.log(`SUKSES mendapatkan url audio publik`);
                     
+                    // Mengembalikan JSON instan agar Vercel langsung selesai (bebas eror timeout)
                     return res.json({
                         urlAudioMurni: finalUrl,
                         kualitas: "Global Audio Stream"
@@ -137,7 +138,7 @@ app.get('/api/stream', async (req, res) => {
         }
     }
 
-    res.status(404).json({ error: 'Semua jalur pipa audio cadangan sedang sibuk. Coba lagi nanti.' });
+    res.status(404).json({ error: 'Jalur pipa audio sedang sibuk. Silakan coba lagi.' });
 });
 
 app.listen(port, () => {
