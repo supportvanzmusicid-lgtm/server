@@ -29,9 +29,16 @@ app.get('/api/search', async (req, res) => {
         if (!hasilPencarian || hasilPencarian.length === 0) return res.json([]);
 
         const daftarLagu = hasilPencarian.slice(0, 15).map(lagu => {
+            // Logika fleksibel untuk menangkap nama artis agar tidak "Unknown Artist"
             let namaArtis = 'Unknown Artist';
-            if (lagu.artists && Array.isArray(lagu.artists)) {
-                namaArtis = lagu.artists.map(a => a.name).join(', ');
+            if (lagu.artists) {
+                if (Array.isArray(lagu.artists)) {
+                    namaArtis = lagu.artists.map(a => typeof a === 'string' ? a : (a.name || a.text)).filter(Boolean).join(', ');
+                } else if (typeof lagu.artists === 'string') {
+                    namaArtis = lagu.artists;
+                }
+            } else if (lagu.author) {
+                namaArtis = typeof lagu.author === 'string' ? lagu.author : (lagu.author.name || lagu.author.text || 'Unknown Artist');
             }
 
             let linkCover = 'https://picsum.photos'; 
@@ -104,7 +111,7 @@ app.get('/api/stream', async (req, res) => {
     return res.status(404).json({ error: 'Semua jalur pipa audio cadangan sedang sibuk. Coba lagi.' });
 });
 
-// Penanganan untuk local testing (jika dijalankan pakai `node server.js`)
+// Penanganan untuk local testing
 if (process.env.NODE_ENV !== 'production') {
     const port = process.env.PORT || 3000;
     app.listen(port, () => {
@@ -112,5 +119,5 @@ if (process.env.NODE_ENV !== 'production') {
     });
 }
 
-// WAJIB: Export app agar bisa dibaca oleh Vercel Serverless Function
+// Export app agar terbaca di Vercel Serverless Function
 export default app;
