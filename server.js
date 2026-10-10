@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import YTMusic from 'ytmusic-api';
-import fetch from 'node-fetch';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -13,116 +12,120 @@ const __dirname = path.dirname(__filename);
 
 app.use(cors());
 app.use(express.json());
-
-app.use(express.static(path.join(__dirname, 'public'))); 
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ========================================================
-// 1. ENDPOINT MENCARI LAGU (SISTEM KUNCI ID MUTLAK)
-// ========================================================
 app.get('/api/search', async (req, res) => {
-    const query = req.query.q;
-    if (!query) return res.status(400).json({ error: 'Parameter pencarian wajib diisi' });
+    const query = String(req.query.q || '').trim();
 
-    const lowQuery = query.toLowerCase();
-
-    // TRIK SAKTI: Jika terdeteksi mencari lagu Raden Rakha / Magic 5, bypass pencarian dan kunci ke ID Video Klip Aslinya!
-    if (lowQuery.includes('jatuh cinta') && (lowQuery.includes('rakha') || lowQuery.includes('basmalah') || lowQuery.includes('magic') || lowQuery.includes('vanz'))) {
-        console.log("Sistem mengunci hasil pencarian khusus ke lagu asli Raden Rakha!");
-        return res.json([
-            {
-                id: "Bke1qKq9FpU", // ID Video Klip Resmi "Jatuh Cinta" Raden Rakha & Basmalah di YouTube
-                judul: "Jatuh Cinta (OST Magic 5)",
-                artis: "Raden Rakha & Basmalah",
-                album: "Original Soundtrack Indosiar",
-                coverArt: "https://youtube.com" // Mengunci cover art resmi dari thumbnail video YouTube asli
-            }
-        ]);
+    if (!query) {
+        return res.status(400).json({
+            error: 'Parameter pencarian wajib diisi. Contoh: /api/search?q=judul%20lagu'
+        });
     }
 
-    // Jika mencari lagu lain selain Raden Rakha, jalankan pencarian normal bawaan ytmusic-api
     try {
         const ytmusic = new YTMusic();
         await ytmusic.initialize();
-        const hasilPencarian = await ytmusic.search(query);
-        
-        if (!hasilPencarian || hasilPencarian.length === 0) return res.json([]);
 
-        const kataKunciTerlarang = ['dj', 'remix', 'jedag', 'jedug', 'instrumental', 'karaoke', 'cover', 'dygta'];
-        const hasilValid = hasilPencarian.filter(item => {
-            const tipeValid = item.type === 'SONG' || item.type === 'VIDEO';
-            if (!tipeValid) return false;
-            const judulLagu = (item.name || '').toLowerCase();
-            return !kataKunciTerlarang.some(kata => judulLagu.includes(kata));
-        });
+        const results = await ytmusic.search(query);
 
-        const daftarLagu = hasilValid.slice(0, 15).map(lagu => {
-            let namaArtis = 'Unknown Artist';
-            if (lagu.artists && Array.isArray(lagu.artists)) {
-                namaArtis = lagu.artists.map(a => a.name).join(', ');
-            } else if (lagu.author && lagu.author.name) {
-                namaArtis = lagu.author.name;
-            }
+        const normalize = (text = '') =>
+            String(text)
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
 
-            let linkCover = 'https://picsum.photos'; 
-            if (lagu.thumbnails && lagu.thumbnails.length > 0) {
-                linkCover = lagu.thumbnails[lagu.thumbnails.length - 1]?.url || '';
-            }
+        const queryText = normalize(query);
+        const queryWords = queryText
+            .split(' ')
+            .filter(word => word.length > 1);
 
-            return {
-                id: lagu.videoId || '',
-                judul: lagu.name || 'Unknown Title',
-                artis: namaArtis,
-                album: lagu.album?.name || 'Single',
-                coverArt: linkCover
-            };
-        });
-        res.json(daftarLagu);
-    } catch (error) {
-        res.status(500).json({ error: 'Gagal mengambil data' });
-    }
-});
+        function getScore(item) {
+            const title = normalize(item.name || '');
 
-// ========================================================
-// 2. ENDPOINT STREAM AUDIO (BYPASS INSTAN TANPA LELET)
-// ========================================================
-app.get('/api/stream', async (req, res) => {
-    const videoId = req.query.id;
-    if (!videoId) return res.status(400).json({ error: 'Parameter ID wajib diisi' });
+            const artistNames = Array.isArray(item.artists)
+                ? item.artists.map(artist => artist?.name || '').join(' ')
+                : '';
 
-    const serverInvidious = [
-        'https://yewtu.be',
-        'https://nerdvpn.de',
-        'https://flokinet.to',
-        'https://tux.digital'
-    ];
+            const artistText = normalize(artistNames);
+            const titleWords = new Set(title.split(' '));
+            const artistWords = new Set(artistText.split(' '));
 
-    for (const baseInstance of serverInvidious) {
-        try {
-            const urlTarget = `${baseInstance}/api/v1/videos/${videoId}?local=true`;
-            const response = await fetch(urlTarget, { timeout: 5000 });
-            if (!response.ok) continue;
+            let points = 0;
 
-            const data = await response.json();
-            if (data && data.adaptiveFormats) {
-                const formatAudio = data.adaptiveFormats.find(f => f.type && f.type.startsWith('audio/'));
-                if (formatAudio && formatAudio.url) {
-                    let finalUrl = formatAudio.url;
-                    if (finalUrl.startsWith('/')) {
-                        finalUrl = `${baseInstance}${finalUrl}`;
-                    }
-                    return res.json({ urlAudioMurni: finalUrl });
+            for (const word of queryWords) {
+                if (titleWords.has(word)) {
+                    points += 3;
+                } else if (artistWords.has(word)) {
+                    points += 2;
                 }
             }
-        } catch (err) {
-            console.error(`Gagal di instance ${baseInstance}:`, err.message);
+
+            if (queryText && title.includes(queryText)) {
+                points += 5;
+            }
+
+            return points;
         }
+
+        const songs = (Array.isArray(results) ? results : [])
+            .filter(item =>
+                item &&
+                item.type === 'SONG' &&
+                item.videoId &&
+                item.name
+            )
+            .map(item => {
+                const thumbnails = Array.isArray(item.thumbnails)
+                    ? item.thumbnails
+                    : [];
+
+                const coverArt =
+                    [...thumbnails]
+                        .reverse()
+                        .find(image => image?.url)?.url || null;
+
+                const artists = Array.isArray(item.artists)
+                    ? item.artists
+                        .map(artist => artist?.name)
+                        .filter(Boolean)
+                    : [];
+
+                return {
+                    score: getScore(item),
+                    song: {
+                        id: item.videoId,
+                        judul: item.name,
+                        artis: artists.length
+                            ? artists.join(', ')
+                            : 'Unknown Artist',
+                        album: item.album?.name || null,
+                        coverArt
+                    }
+                };
+            })
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 15)
+            .map(result => result.song);
+
+        return res.json(songs);
+    } catch (error) {
+        console.error('Gagal mencari lagu:', error);
+
+        return res.status(500).json({
+            error: 'Gagal mengambil hasil pencarian'
+        });
     }
-    res.status(404).json({ error: 'Jalur pipa audio sedang sibuk.' });
 });
+
+// Endpoint stream lama sengaja tidak disertakan.
 
 app.listen(port, () => {
     console.log(`Server aktif di port ${port}`);
