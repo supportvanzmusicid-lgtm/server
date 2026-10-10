@@ -22,7 +22,7 @@ app.get('/', (req, res) => {
 });
 
 // ========================================================
-// 1. ENDPOINT MENCARI LAGU (PERBAIKAN: HASIL PAS & COCOK UNTUK OST)
+// 1. ENDPOINT MENCARI LAGU (PERBAIKAN MUTLAK: ANTI-DJ & ANTI-REMIX)
 // ========================================================
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
@@ -32,27 +32,37 @@ app.get('/api/search', async (req, res) => {
         const ytmusic = new YTMusic();
         await ytmusic.initialize();
         
-        // Menggunakan search umum tanpa filter kaku agar Video Musik/OST Resmi ikut terjaring
+        // Cari secara umum agar mencakup Video Musik resmi & OST
         const hasilPencarian = await ytmusic.search(query);
         
         if (!hasilPencarian || hasilPencarian.length === 0) return res.json([]);
 
-        // Menyaring hanya item yang berjenis lagu resmi (SONG) atau video musik (VIDEO)
-        const hasilValid = hasilPencarian.filter(item => item.type === 'SONG' || item.type === 'VIDEO');
+        // Daftar kata kunci terlarang yang akan langsung dibuang oleh server
+        const kataKunciTerlarang = ['dj', 'remix', 'jedag', 'jedug', 'instrumental', 'karaoke', 'cover'];
+
+        // Proses penyaringan ketat
+        const hasilValid = hasilPencarian.filter(item => {
+            // Hanya ambil tipe lagu atau video
+            const tipeValid = item.type === 'SONG' || item.type === 'VIDEO';
+            if (!tipeValid) return false;
+
+            const judulLagu = (item.name || '').toLowerCase();
+            
+            // Buang video jika judulnya mengandung unsur DJ atau Remix dugem
+            const apakahLaguDj = kataKunciTerlarang.some(kata => judulLagu.includes(kata));
+            
+            return !apakahLaguDj; // Hanya lolos jika bukan versi DJ/Remix
+        });
 
         const daftarLagu = hasilValid.slice(0, 15).map(lagu => {
-            let namaArtis = 'Unknown Artist';
+            let namaArtis = 'Raden Rakha & Basmalah'; // Default untuk OST Magic 5
             
-            // Mengambil nama penyanyi atau nama channel pengunggah video asli
             if (lagu.artists && Array.isArray(lagu.artists)) {
                 namaArtis = lagu.artists.map(a => a.name).join(', ');
             } else if (lagu.author && lagu.author.name) {
                 namaArtis = lagu.author.name;
-            } else if (lagu.artists && lagu.artists.name) {
-                namaArtis = lagu.artists.name;
             }
 
-            // Pemetaan gambar cover art agar kualitasnya HD (tidak pecah di Android)
             let linkCover = 'https://picsum.photos'; 
             if (lagu.thumbnails && lagu.thumbnails.length > 0) {
                 let urlMentah = lagu.thumbnails[lagu.thumbnails.length - 1]?.url || '';
@@ -69,7 +79,7 @@ app.get('/api/search', async (req, res) => {
                 id: lagu.videoId || '',
                 judul: lagu.name || 'Unknown Title',
                 artis: namaArtis,
-                album: lagu.album?.name || 'Single / OST',
+                album: lagu.album?.name || 'Original Soundtrack',
                 coverArt: linkCover
             };
         });
