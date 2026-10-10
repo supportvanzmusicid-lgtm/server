@@ -8,13 +8,14 @@ const app = express();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const publicDir = path.join(__dirname, 'public');
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(publicDir));
 
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(publicDir, 'index.html'));
 });
 
 app.get('/api/search', async (req, res) => {
@@ -26,26 +27,31 @@ app.get('/api/search', async (req, res) => {
         });
     }
 
-    const normalizedQuery = query.toLowerCase();
+    const q = query
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-    // Hasil khusus untuk lagu ini, supaya tidak tertukar dengan hasil lain.
+    // Pakai cover lokal untuk lagu ini, bukan thumbnail hasil pencarian.
     if (
-        normalizedQuery.includes('jatuh cinta') &&
-        normalizedQuery.includes('rakha') &&
+        q.includes('aku jatuh cinta') &&
         (
-            normalizedQuery.includes('basmalah') ||
-            normalizedQuery.includes('basmallah')
+            q.includes('rakha') ||
+            q.includes('basmalah') ||
+            q.includes('basmallah') ||
+            !q.includes('kartika')
         )
     ) {
-        const videoId = 'ZRMMpzpVjtQ';
-
         return res.json([
             {
-                id: videoId,
+                id: 'ZRMMpzpVjtQ',
                 judul: 'Aku Jatuh Cinta',
                 artis: 'Raden Rakha & Basmalah',
                 album: 'Aku Jatuh Cinta (OST Magic 5)',
-                coverArt: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+                coverArt:
+                    'https://server-kappa-black-72.vercel.app/covers/aku-jatuh-cinta.jpg'
             }
         ]);
     }
@@ -56,8 +62,8 @@ app.get('/api/search', async (req, res) => {
 
         const results = await ytmusic.search(query);
 
-        const normalize = (text = '') =>
-            String(text)
+        const normalize = text =>
+            String(text || '')
                 .toLowerCase()
                 .normalize('NFD')
                 .replace(/[\u0300-\u036f]/g, '')
@@ -65,13 +71,13 @@ app.get('/api/search', async (req, res) => {
                 .replace(/\s+/g, ' ')
                 .trim();
 
-        const cleanQuery = normalize(query);
-        const queryWords = cleanQuery
+        const normalizedQuery = normalize(query);
+        const queryWords = normalizedQuery
             .split(' ')
             .filter(word => word.length > 1);
 
-        function scoreSong(item) {
-            const title = normalize(item.name || '');
+        function getScore(item) {
+            const title = normalize(item.name);
 
             const artistText = Array.isArray(item.artists)
                 ? normalize(
@@ -94,7 +100,7 @@ app.get('/api/search', async (req, res) => {
                 }
             }
 
-            if (cleanQuery && title.includes(cleanQuery)) {
+            if (normalizedQuery && title.includes(normalizedQuery)) {
                 score += 5;
             }
 
@@ -125,7 +131,7 @@ app.get('/api/search', async (req, res) => {
                     : [];
 
                 return {
-                    score: scoreSong(item),
+                    score: getScore(item),
                     song: {
                         id: item.videoId,
                         judul: item.name,
