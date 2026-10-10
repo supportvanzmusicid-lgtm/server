@@ -1,9 +1,16 @@
 import express from 'express';
+import cors from 'cors';
 import YTMusic from 'ytmusic-api';
 import fetch from 'node-fetch';
 
 const app = express();
-const port = process.env.PORT || 3000;
+
+// Middleware CORS agar API bisa diakses dari frontend web manapun
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type']
+}));
 
 app.use(express.json());
 
@@ -47,20 +54,20 @@ app.get('/api/search', async (req, res) => {
                 coverArt: linkCover
             };
         });
-        res.json(daftarLagu);
+        return res.json(daftarLagu);
     } catch (error) {
-        res.status(500).json({ error: 'Gagal mengambil data' });
+        console.error('Error Search:', error.message);
+        return res.status(500).json({ error: 'Gagal mengambil data', details: error.message });
     }
 });
 
 // ========================================================
-// 2. ENDPOINT STREAM AUDIO (PERBAIKAN: BEBAS SALAH KETIK)
+// 2. ENDPOINT STREAM AUDIO
 // ========================================================
 app.get('/api/stream', async (req, res) => {
     const videoId = req.query.id;
     if (!videoId) return res.status(400).json({ error: 'Parameter ID wajib diisi' });
 
-    // Daftar server Invidious publik cadangan yang sangat stabil
     const serverInvidious = [
         'https://nerdvpn.de',
         'https://yewtu.be',
@@ -94,9 +101,16 @@ app.get('/api/stream', async (req, res) => {
         }
     }
 
-    res.status(404).json({ error: 'Semua jalur pipa audio cadangan sedang sibuk. Coba lagi.' });
+    return res.status(404).json({ error: 'Semua jalur pipa audio cadangan sedang sibuk. Coba lagi.' });
 });
 
-app.listen(port, () => {
-    console.log(`Server aktif di port ${port}`);
-});
+// Penanganan untuk local testing (jika dijalankan pakai `node server.js`)
+if (process.env.NODE_ENV !== 'production') {
+    const port = process.env.PORT || 3000;
+    app.listen(port, () => {
+        console.log(`Server lokal aktif di port ${port}`);
+    });
+}
+
+// WAJIB: Export app agar bisa dibaca oleh Vercel Serverless Function
+export default app;
