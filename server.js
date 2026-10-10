@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 app.use(express.json());
 
 // ========================================================
-// MENAMPILKAN KEMBALI WEBSITE UTAMA KAMU (FRONT-END)
+// MENAMPILKAN KEMBALI WEBSITE UTAMA KAMU (FRONT-END HTML)
 // ========================================================
 app.use(express.static(path.join(__dirname, 'public'))); 
 
@@ -22,7 +22,7 @@ app.get('/', (req, res) => {
 });
 
 // ========================================================
-// 1. ENDPOINT MENCARI LAGU (PERBAIKAN: JAUH LEBIH AKURAT)
+// 1. ENDPOINT MENCARI LAGU (PERBAIKAN: HASIL PAS & COCOK UNTUK OST)
 // ========================================================
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
@@ -32,17 +32,27 @@ app.get('/api/search', async (req, res) => {
         const ytmusic = new YTMusic();
         await ytmusic.initialize();
         
-        // MENGGUNAKAN FILTER "SONG" AGAR HASIL PENCARIAN PAS DAN SESUAI JUDUL YANG DICARI
-        const hasilPencarian = await ytmusic.search(query, "SONG");
+        // Menggunakan search umum tanpa filter kaku agar Video Musik/OST Resmi ikut terjaring
+        const hasilPencarian = await ytmusic.search(query);
         
         if (!hasilPencarian || hasilPencarian.length === 0) return res.json([]);
 
-        const daftarLagu = hasilPencarian.slice(0, 15).map(lagu => {
+        // Menyaring hanya item yang berjenis lagu resmi (SONG) atau video musik (VIDEO)
+        const hasilValid = hasilPencarian.filter(item => item.type === 'SONG' || item.type === 'VIDEO');
+
+        const daftarLagu = hasilValid.slice(0, 15).map(lagu => {
             let namaArtis = 'Unknown Artist';
+            
+            // Mengambil nama penyanyi atau nama channel pengunggah video asli
             if (lagu.artists && Array.isArray(lagu.artists)) {
                 namaArtis = lagu.artists.map(a => a.name).join(', ');
+            } else if (lagu.author && lagu.author.name) {
+                namaArtis = lagu.author.name;
+            } else if (lagu.artists && lagu.artists.name) {
+                namaArtis = lagu.artists.name;
             }
 
+            // Pemetaan gambar cover art agar kualitasnya HD (tidak pecah di Android)
             let linkCover = 'https://picsum.photos'; 
             if (lagu.thumbnails && lagu.thumbnails.length > 0) {
                 let urlMentah = lagu.thumbnails[lagu.thumbnails.length - 1]?.url || '';
@@ -59,12 +69,13 @@ app.get('/api/search', async (req, res) => {
                 id: lagu.videoId || '',
                 judul: lagu.name || 'Unknown Title',
                 artis: namaArtis,
-                album: lagu.album?.name || 'Single',
+                album: lagu.album?.name || 'Single / OST',
                 coverArt: linkCover
             };
         });
         res.json(daftarLagu);
     } catch (error) {
+        console.error('Eror pencarian:', error);
         res.status(500).json({ error: 'Gagal mengambil data pencarian' });
     }
 });
